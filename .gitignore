@@ -9,4 +9,5 @@ venv/
 .DS_Store
 output/
 filtered*
+tools/
 "@ | Set-Content -Encoding UTF8 .gitignore
