@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Log Filter GUI (current file)",
+      "type": "process",
+      "command": "py",
+      "args": [
+        "-3.13",
+        "${workspaceFolder}\\main.py",
+        "--input-file",
+        "${file}"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "desc": "Uptime",
+    "regex": "\"uptime\":\\s*(?!0)\\d+"
+  },
+  {
+    "desc": "device info",
+    "regex": "^[ ]{12}\"name\":\\s*\"([^\"]+)\"|^[ ]{12}\"model\":\\s*\"[^\"]*\"|\"uptime\":\\s*(?!0)\\d+"
+  }
+]
