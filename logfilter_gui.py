@@ -9,6 +9,7 @@ import tempfile
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox
+import re
 
 from logfilter_engine import (
     rebuild_compiled_patterns,
@@ -135,6 +136,29 @@ class LogFilterGUI(tk.Tk):
     # ----------------------------
     # UI
     # ----------------------------
+    def _detect_filter_type(self, value: str) -> str:
+        """
+        Detect filter type automatically.
+        Currently supports IPv4 detection.
+        """
+        value = value.strip()
+
+        ipv4_pattern = r"^(?:\d{1,3}\.){3}\d{1,3}$"
+
+        if re.match(ipv4_pattern, value):
+            parts = value.split(".")
+            valid = True
+            for p in parts:
+                n = int(p)
+                if n < 0 or n > 255:
+                    valid = False
+                    break
+
+            if valid:
+                return "ip"
+
+        return "string"
+
     def _build_ui(self):
         # Top: file info
         top = ttk.Frame(self, padding=10)
@@ -327,7 +351,8 @@ class LogFilterGUI(tk.Tk):
         v = self._prompt_value("Add pattern")
         if not v:
             return
-        self._add_value(which, v, item_type="string", label=v)
+        ftype = self._detect_filter_type(v)
+        self._add_value(which, v, item_type=ftype, label=v)
 
     def _add_clipboard(self, which):
         try:
@@ -337,7 +362,8 @@ class LogFilterGUI(tk.Tk):
         if not v:
             messagebox.showwarning("Clipboard empty", "Clipboard is empty.")
             return
-        self._add_value(which, v, item_type="string", label=v)
+        ftype = self._detect_filter_type(v)
+        self._add_value(which, v, item_type=ftype, label=v)
 
     def _add_value(self, which, v, item_type="string", label=None):
         item = {

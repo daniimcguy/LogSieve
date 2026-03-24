@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional, Any
 import re
 
-FilterItem = Dict[str, Any]  # {"type": "string"|"regex", "value": str, "label": str, "enabled": bool, ...}
+FilterItem = Dict[str, Any]  # {"type": "string"|"regex"|"ip", "value": str, "label": str, "enabled": bool, ...}
 
 
 def _norm(s: str) -> str:
@@ -17,31 +17,95 @@ def _norm(s: str) -> str:
     s = re.sub(r"[ ]{2,}", " ", s)
     return s
 
+def _is_valid_ipv4(value: str) -> bool:
+    parts = value.split(".")
+    if len(parts) != 4:
+        return False
+
+    for p in parts:
+        if not p.isdigit():
+            return False
+        if len(p) > 1 and p.startswith("0"):
+            return False
+        n = int(p)
+        if n < 0 or n > 255:
+            return False
+
+    return True
+
+
+def _build_ip_regex(ip: str) -> re.Pattern:
+    """
+    Build a regex that matches the exact IPv4 token only, with numeric-safe boundaries.
+
+    Example:
+    - matches   : 192.168.1.2
+    - no match  : 192.168.1.21
+                  10.192.168.1.2
+                  192.168.1.2.5
+    """
+    escaped = re.escape(ip)
+
+    # Left boundary: previous char must NOT be a digit
+    # Right boundary: next char must NOT be a digit
+    #
+    # We intentionally only guard against digits here, because the IP itself already
+    # contains literal dots and must therefore match exactly as written.
+    pattern = rf"(?<!\d){escaped}(?!\d)"
+    return re.compile(pattern)
 
 def rebuild_compiled_patterns(includes: List[FilterItem], excludes: List[FilterItem], case_insensitive: bool) -> None:
-    """Compile regex items in-place and store as item['compiled'].
+    """Compile regex/ip items in-place and store as item['compiled'].
     Keeps item['regex_error'] if invalid.
     """
     flags = re.IGNORECASE if case_insensitive else 0
 
     def compile_item(it: FilterItem) -> None:
-        if it.get("type") != "regex":
-            it.pop("compiled", None)
-            it.pop("regex_error", None)
+        t = it.get("type")
+
+        if t == "regex":
+            rx = (it.get("value") or "").strip()
+            if not rx:
+                it.pop("compiled", None)
+                it.pop("regex_error", None)
+                return
+
+            try:
+                it["compiled"] = re.compile(rx, flags)
+                it.pop("regex_error", None)
+            except re.error as e:
+                it.pop("compiled", None)
+                it["regex_error"] = str(e)
             return
 
-        rx = (it.get("value") or "").strip()
-        if not rx:
-            it.pop("compiled", None)
-            it.pop("regex_error", None)
+        if t == "ip":
+            ip = (it.get("value") or "").strip()
+            if not ip:
+                it.pop("compiled", None)
+                it.pop("regex_error", None)
+                return
+
+            if not _is_valid_ipv4(ip):
+                it.pop("compiled", None)
+                it["regex_error"] = "Invalid IPv4 address"
+                return
+
+            try:
+                ip_pat = _build_ip_regex(ip)
+                if case_insensitive:
+                    # rebuild with IGNORECASE for consistency, even if digits are case-insensitive by nature
+                    it["compiled"] = re.compile(ip_pat.pattern, flags)
+                else:
+                    it["compiled"] = ip_pat
+                it.pop("regex_error", None)
+            except re.error as e:
+                it.pop("compiled", None)
+                it["regex_error"] = str(e)
             return
 
-        try:
-            it["compiled"] = re.compile(rx, flags)
-            it.pop("regex_error", None)
-        except re.error as e:
-            it.pop("compiled", None)
-            it["regex_error"] = str(e)
+        # string or anything else
+        it.pop("compiled", None)
+        it.pop("regex_error", None)
 
     for it in includes:
         compile_item(it)
@@ -65,10 +129,26 @@ def _match_item(line: str, item: FilterItem, case_insensitive: bool) -> bool:
         if pat is not None:
             return pat.search(line) is not None
 
-        # fallback: attempt compile on the fly (should be rare if rebuild_compiled_patterns is used)
+        # fallback: attempt compile on the fly
         flags = re.IGNORECASE if case_insensitive else 0
         try:
             return re.search(v, line, flags) is not None
+        except re.error:
+            return False
+
+    if t == "ip":
+        pat = item.get("compiled")
+        if pat is not None:
+            return pat.search(line) is not None
+
+        # fallback if rebuild_compiled_patterns has not run yet
+        ip = v.strip()
+        if not _is_valid_ipv4(ip):
+            return False
+
+        try:
+            flags = re.IGNORECASE if case_insensitive else 0
+            return re.search(_build_ip_regex(ip).pattern, line, flags) is not None
         except re.error:
             return False
 
